@@ -136,6 +136,10 @@ Pid_t sys_Exec(Task call, int argl, void* args)
   /* The new process PCB */
   newproc = acquire_PCB();
 
+  /* create ptcb for the main thread */
+  PTCB* new_ptcb = (PTCB*)xmalloc(sizeof(PTCB));
+  newproc->thread_count = 0;//no threads in this process.
+
   if(newproc == NULL) goto finish;  /* We have run out of PIDs! */
 
   if(get_pid(newproc)<=1) {
@@ -160,11 +164,13 @@ Pid_t sys_Exec(Task call, int argl, void* args)
     }
   }
 
+  /* initialize the intrusive list of pcb */
+  rlnode_new(&newproc->ptcb_list);
 
   /* Set the main thread's function */
   newproc->main_task = call;
 
-  /* Copy the arguments to new storage, owned by the new process */
+  /* Copy the arguments to new storage, owned by the new ptcb */
   newproc->argl = argl;
   if(args!=NULL) {
     newproc->args = malloc(argl);
@@ -180,6 +186,31 @@ Pid_t sys_Exec(Task call, int argl, void* args)
    */
   if(call != NULL) {
     newproc->main_thread = spawn_thread(newproc, start_main_thread);
+    newproc->main_thread->ptcb = new_ptcb; // tcb->ptcb
+    newproc->thread_count++; // new thread created!
+
+    /** Initialize PTCB: */
+    new_ptcb->tcb = newproc->main_thread;  // ptcb->tcb
+    new_ptcb->task = call; // task for the new thread.
+    new_ptcb->refcount = 0;
+    new_ptcb->exited = 0; // not exited.
+    new_ptcb->detached = 0; // not detached.
+
+    //initialize rlnode and push front in the list of ptcbs:
+    rlnode_init(&(new_ptcb->ptcb_list_node),new_ptcb);
+    rlist_push_back(&(newproc->ptcb_list), & new_ptcb->ptcb_list_node);
+
+
+    /* Copy the arguments to new storage, owned by the new process */
+    new_ptcb->argl = argl;
+    if(args!=NULL) {
+      new_ptcb->args = malloc(argl);
+      memcpy(new_ptcb->args, args, argl);
+    }
+    else
+      newproc->args=NULL;
+
+
     wakeup(newproc->main_thread);
   }
 
@@ -291,9 +322,6 @@ void sys_Exit(int exitval)
 
   PCB *curproc = CURPROC;  /* cache for efficiency */
 
-  /* First, store the exit status */
-  curproc->exitval = exitval;
-
   /* 
     Here, we must check that we are not the init task. 
     If we are, we must wait until all child processes exit. 
@@ -302,60 +330,11 @@ void sys_Exit(int exitval)
 
     while(sys_WaitChild(NOPROC,NULL)!=NOPROC);
 
-  } else {
-
-    /* Reparent any children of the exiting process to the 
-       initial task */
-    PCB* initpcb = get_pcb(1);
-    while(!is_rlist_empty(& curproc->children_list)) {
-      rlnode* child = rlist_pop_front(& curproc->children_list);
-      child->pcb->parent = initpcb;
-      rlist_push_front(& initpcb->children_list, child);
-    }
-
-    /* Add exited children to the initial task's exited list 
-       and signal the initial task */
-    if(!is_rlist_empty(& curproc->exited_list)) {
-      rlist_append(& initpcb->exited_list, &curproc->exited_list);
-      kernel_broadcast(& initpcb->child_exit);
-    }
-
-    /* Put me into my parent's exited list */
-    rlist_push_front(& curproc->parent->exited_list, &curproc->exited_node);
-    kernel_broadcast(& curproc->parent->child_exit);
-
+  }else{
+    sys_ThreadExit(exitval);
   }
-
-  assert(is_rlist_empty(& curproc->children_list));
-  assert(is_rlist_empty(& curproc->exited_list));
-
-
-  /* 
-    Do all the other cleanup we want here, close files etc. 
-   */
-
-  /* Release the args data */
-  if(curproc->args) {
-    free(curproc->args);
-    curproc->args = NULL;
-  }
-
-  /* Clean up FIDT */
-  for(int i=0;i<MAX_FILEID;i++) {
-    if(curproc->FIDT[i] != NULL) {
-      FCB_decref(curproc->FIDT[i]);
-      curproc->FIDT[i] = NULL;
-    }
-  }
-
-  /* Disconnect my main_thread */
-  curproc->main_thread = NULL;
-
-  /* Now, mark the process as exited. */
-  curproc->pstate = ZOMBIE;
-
-  /* Bye-bye cruel world */
   kernel_sleep(EXITED, SCHED_USER);
+    
 }
 
 

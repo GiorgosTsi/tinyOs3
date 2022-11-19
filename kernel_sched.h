@@ -139,7 +139,7 @@ typedef struct process_thread_control_block {
 
   TCB* tcb; // pointer to tcb.
   Task task;//The task to execute.
-  int argl // the arguments lenght.
+  int argl ;// the arguments lenght.
   void* args; // the arguments of task.
   int exitval; //the exit value of the task-thread.
 
