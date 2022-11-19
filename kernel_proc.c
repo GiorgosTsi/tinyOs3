@@ -27,6 +27,7 @@ PCB* get_pcb(Pid_t pid)
 Pid_t get_pid(PCB* pcb)
 {
   return pcb==NULL ? NOPROC : pcb-PT;
+  
 }
 
 /* Initialize a PCB */
