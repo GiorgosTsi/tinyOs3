@@ -101,6 +101,8 @@ typedef struct thread_control_block {
 
 	PCB* owner_pcb; /**< @brief This is null for a free TCB */
 
+  PTCB* ptcb; /**Pointer to the wrapper ptcb. */
+
 	cpu_context_t context; /**< @brief The thread context */
 	Thread_type type; /**< @brief The type of thread */
 	Thread_state state; /**< @brief The state of the thread */
@@ -129,6 +131,25 @@ typedef struct thread_control_block {
 #endif
 
 } TCB;
+
+/**
+ * The process thread control block.A wrapper of tcb.
+ *  */
+typedef struct process_thread_control_block {
+
+  TCB* tcb; // pointer to tcb.
+  Task task;//The task to execute.
+  int argl // the arguments lenght.
+  void* args; // the arguments of task.
+  int exitval; //the exit value of the task-thread.
+
+  int exited; // 0 if thread is not dead, 1 if exited.
+  int detached; // 1 if this thread is detached, else 0.
+  CondVar exit_cv; // the condition variable of the thread.
+  int refcount; // counts the threads who are waiting this thread to exit.
+  rlnode ptcb_list_node; // the rlnode.
+
+} PTCB;
 
 /** @brief Thread stack size.
 
