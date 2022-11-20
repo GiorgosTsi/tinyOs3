@@ -3,12 +3,56 @@
 #include "kernel_sched.h"
 #include "kernel_proc.h"
 
+void start_thread(){
+
+  int exitval;
+
+  TCB* curr_thread = cur_thread();
+
+  Task call = curr_thread->ptcb->task;
+  int argl = curr_thread->ptcb->argl;
+  void* args = curr_thread->ptcb->args;
+
+  exitval = call(argl,args);
+  ThreadExit(exitval);
+}
+
 /** 
   @brief Create a new thread in the current process.
   */
 Tid_t sys_CreateThread(Task task, int argl, void* args)
 {
-	return NOTHREAD;
+  TCB* new_tcb = spawn_thread(CURPROC, start_thread);  //initialize TCB
+
+  CURPROC->thread_count++;//increment thread count of current process
+
+  // create ptcb for the thread
+  PTCB* new_ptcb = (PTCB*)xmalloc(sizeof(PTCB));
+
+  //make the connections between tcb, pcb and ptcb
+  new_ptcb->tcb = new_tcb;
+  new_tcb->ptcb = new_ptcb;
+
+
+  // Initialize PTCB:
+  new_ptcb->task = task; // task for the new thread.
+  new_ptcb->refcount = 0;
+  new_ptcb->exited = 0; // not exited.
+  new_ptcb->detached = 0; // not detached.
+
+  // Copy the arguments to the ptcb's arguments
+  new_ptcb->argl = argl;
+  new_ptcb->args = args;
+
+  //initialize the rlnode of ptcb
+  rlnode_init(&(new_ptcb->ptcb_list_node),new_ptcb);
+
+  //push the ptcb to the process list
+  rlist_push_back(&(CURPROC->ptcb_list), & (new_ptcb->ptcb_list_node));
+
+  //add this thread to the scheduler's list
+  wakeup(new_tcb);
+  return (Tid_t) new_ptcb;
 }
 
 /**
