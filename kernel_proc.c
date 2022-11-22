@@ -208,7 +208,7 @@ Pid_t sys_Exec(Task call, int argl, void* args)
       memcpy(new_ptcb->args, args, argl);
     }
     else
-      newproc->args=NULL;
+      new_ptcb->args=NULL;
 
 
     wakeup(newproc->main_thread);
@@ -321,7 +321,7 @@ void sys_Exit(int exitval)
 {
 
   PCB *curproc = CURPROC;  /* cache for efficiency */
-
+  
   /* 
     Here, we must check that we are not the init task. 
     If we are, we must wait until all child processes exit. 
@@ -330,10 +330,10 @@ void sys_Exit(int exitval)
 
     while(sys_WaitChild(NOPROC,NULL)!=NOPROC);
 
-  }else{
-    sys_ThreadExit(exitval);
   }
-  kernel_sleep(EXITED, SCHED_USER);
+    sys_ThreadExit(exitval);
+  
+  
     
 }
 
