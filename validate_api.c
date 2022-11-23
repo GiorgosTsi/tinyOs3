@@ -974,7 +974,6 @@ int run_get_status(Task task, int argl, void* args)
 
 	int exitval;
 	ASSERT(WaitChild(pid, &exitval)==pid);
-
 	return exitval;
 }
 

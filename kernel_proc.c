@@ -203,12 +203,7 @@ Pid_t sys_Exec(Task call, int argl, void* args)
 
     /* Copy the arguments to new storage, owned by the new process */
     new_ptcb->argl = argl;
-    if(args!=NULL) {
-      new_ptcb->args = malloc(argl);
-      memcpy(new_ptcb->args, args, argl);
-    }
-    else
-      new_ptcb->args=NULL;
+    new_ptcb->args = args;
 
 
     wakeup(newproc->main_thread);
@@ -322,6 +317,7 @@ void sys_Exit(int exitval)
 
   PCB *curproc = CURPROC;  /* cache for efficiency */
   
+  curproc->exitval = exitval;
   /* 
     Here, we must check that we are not the init task. 
     If we are, we must wait until all child processes exit. 

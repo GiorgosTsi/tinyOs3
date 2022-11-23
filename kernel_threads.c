@@ -4,6 +4,7 @@
 #include "kernel_proc.h"
 #include "util.h"
 #include "kernel_cc.h"
+#include "kernel_streams.h"
 
 void start_thread(){
 
@@ -16,7 +17,7 @@ void start_thread(){
   void* args = curr_thread->ptcb->args;
 
   exitval = call(argl,args);
-  ThreadExit(exitval);
+  sys_ThreadExit(exitval);
 }
 
 /** 
@@ -100,25 +101,25 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
   }
 
   // if the invoker thread tried to join itself
-  else if(invoker_ptcb == invoked_ptcb){
+  if(invoker_ptcb == invoked_ptcb){
     //fprintf(stderr, "The given tid corresponds to the current thread.");
     return -1;
   }
 
   // if the thread to join to is detached
-  else if(invoked_ptcb->detached == 1){
+  if(invoked_ptcb->detached == 1){
     //fprintf(stderr, "The tid corresponds to a detached thread.");
     return -1;
   }
 
   // if the thread to join to is exited
-  else if(invoked_ptcb->exited == 1){
+ // if(invoked_ptcb->exited == 1){
     //fprintf(stderr, "The tid corresponds to an exited thread.");
-    return -1;
-  }
+   // return -1;
+  //}
 
   // rlnode of ptcb is already initialized so we just add it to the list of waiting threads of the other ptcb 
-  rlist_push_back(&(invoked_ptcb->exit_cv), &(invoker_ptcb->ptcb_list_node));
+//  rlist_push_back(&(invoked_ptcb->exit_cv), &(invoker_ptcb->ptcb_list_node));
 
   // update the refcount as a thread waits to join this one
   invoked_ptcb->refcount++;
@@ -135,7 +136,7 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
   invoked_ptcb->refcount--;
 
   // remove the invoker thread from the waiting list of the invoked thread
-  rlist_remove(&(invoked_ptcb->ptcb_list_node));
+ // rlist_remove(&(invoked_ptcb->ptcb_list_node));
 
   // if the other thread became detached join has failed so return -1
   if(invoked_ptcb->detached == 1){
@@ -145,8 +146,14 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
 
 
   // store the exit value of the joined thread 
-  *exitval = invoked_ptcb->exitval;
-  free(invoked_ptcb); // invoked thread exited so we free the ptcb
+  if(exitval != NULL)
+    *exitval = invoked_ptcb->exitval;
+  
+  if(invoked_ptcb->refcount == 0){
+    // rlnode remove ptcb from CURPROC list
+    rlist_remove(&invoked_ptcb->ptcb_list_node);
+    free(invoked_ptcb); // invoked thread exited so we free the ptcb
+  }
 	return 0;
 }
 
@@ -159,17 +166,17 @@ int sys_ThreadDetach(Tid_t tid)
 	PTCB* thread_to_detach = (PTCB*) tid; // the thread to detach
 
   // if the given tid is null return 
-  if(tid == NULL){
+  if(thread_to_detach == NULL){
     return -1;
   }
 
   // if there is no thread with the given tid in this process
-  else if(rlist_find(&(CURPROC->ptcb_list), thread_to_detach, NULL) == NULL){
+  if(rlist_find(&(CURPROC->ptcb_list), thread_to_detach, NULL) == NULL){
     return -1;
   }
   
   // if the thread to detach is exited 
-  else if(thread_to_detach->exited == 1){ 
+  if(thread_to_detach->exited == 1){ 
     return -1;
   }
   
@@ -202,13 +209,18 @@ void sys_ThreadExit(int exitval)
   //wake up all the threads who join this one:
   if(curr_ptcb->refcount > 0)//if there are threads who joined this one wake them up
     kernel_broadcast(&(curr_ptcb->exit_cv));
+  
+  /*if(curr_ptcb->refcount == 0){
+    rlist_remove(&curr_ptcb->ptcb_list_node);
+    free(curr_ptcb);
+  }*/
 
   /*If thread_count is 0 here, thread to exit is the main thread!Exit the process. */
   if(curproc->thread_count == 0){
 
 
     /* First, store the exit status */
-    curproc->exitval = exitval;
+  //  curproc->exitval = exitval;
 
     /* Reparent any children of the exiting process to the 
        initial task */
@@ -256,10 +268,10 @@ void sys_ThreadExit(int exitval)
     }
 
     // if pcb is about to be deleted then we must delete all of its ptcbs
-    while(!is_rlist_empty(&(CURPROC->ptcb_list))){
-        rlnode* p = rlist_pop_front(&(CURPROC->ptcb_list));
-        free(p->ptcb);
-    }
+//    while(!is_rlist_empty(&(CURPROC->ptcb_list))){
+  //      rlnode* p = rlist_pop_front(&(CURPROC->ptcb_list));
+    //    free(p->ptcb);
+    //}
 
     /* Disconnect my main_thread */
     curproc->main_thread = NULL;
