@@ -91,6 +91,8 @@ enum SCHED_CAUSE {
 	SCHED_USER /**< @brief User-space code called yield */
 };
 
+#define MAX_QUEUES 16 /*The number of scheduler's queues */
+#define TIME_TO_BOOST 700 /* Every TIME_TO_BOOST calls of yield boost up the priority of all threads to avoid starvation*/
 /**
   @brief The thread control block
 
@@ -107,6 +109,9 @@ typedef struct thread_control_block {
 	Thread_type type; /**< @brief The type of thread */
 	Thread_state state; /**< @brief The state of the thread */
 	Thread_phase phase; /**< @brief The phase of the thread */
+  /*Higher priority is the constant MAX_QUEUES, and the lowest is 0
+    so priority is between [0..MAX_QUEUES-1] */
+  int priority;       /**@brief The priority of this thread on scheduler's list. */
 
 	void (*thread_func)(); /**< @brief The initial function executed by this thread */
 
@@ -192,6 +197,8 @@ extern CCB cctx[MAX_CORES];
   @returns a pointer to the TCB of the caller.
 */
 TCB* cur_thread();
+
+void boost_up();
 
 /** 
   @brief The current process.

@@ -28,6 +28,9 @@ CCB cctx[MAX_CORES];
  */
 #define CURCORE (cctx[cpu_core_id])
 
+
+/*A static counter to boost up the priority of threads after MAX_QUEUES calls of yield*/
+static int yield_counter = 0;
 /* 
 	The current thread. This is a pointer to the TCB of the thread 
 	currently executing on this core.
@@ -97,6 +100,7 @@ Mutex active_threads_spinlock = MUTEX_INIT;
 //#define MMAPPED_THREAD_MEM
 #ifdef MMAPPED_THREAD_MEM
 
+
 /*
   Use mmap to allocate a thread. A more detailed implementation can allocate a
   "sentinel page", and change access to PROT_NONE, so that a stack overflow
@@ -164,6 +168,7 @@ TCB* spawn_thread(PCB* pcb, void (*func)())
 	tcb->phase = CTX_CLEAN;
 	tcb->thread_func = func;
 	tcb->wakeup_time = NO_TIMEOUT;
+	tcb->priority = (MAX_QUEUES - 1)/2;
 	rlnode_init(&tcb->sched_node, tcb); /* Intrusive list node */
 
 	tcb->its = QUANTUM;
@@ -225,7 +230,7 @@ void release_TCB(TCB* tcb)
   Both of these structures are protected by @c sched_spinlock.
 */
 
-rlnode SCHED; /* The scheduler queue */
+rlnode SCHED[MAX_QUEUES]; /* The scheduler's priority queues */
 rlnode TIMEOUT_LIST; /* The list of threads with a timeout */
 Mutex sched_spinlock = MUTEX_INIT; /* spinlock for scheduler queue */
 
@@ -267,8 +272,8 @@ static void sched_register_timeout(TCB* tcb, TimerDuration timeout)
 */
 static void sched_queue_add(TCB* tcb)
 {
-	/* Insert at the end of the scheduling list */
-	rlist_push_back(&SCHED, &tcb->sched_node);
+	/* Insert at the end of the priority index scheduling list */
+	rlist_push_back(&(SCHED[tcb->priority]), &tcb->sched_node);
 
 	/* Restart possibly halted cores */
 	cpu_core_restart_one();
@@ -326,8 +331,16 @@ static void sched_wakeup_expired_timeouts()
 */
 static TCB* sched_queue_select(TCB* current)
 {
-	/* Get the head of the SCHED list */
-	rlnode* sel = rlist_pop_front(&SCHED);
+
+	/* Get the head of the higher non empty priority list */
+	int i=MAX_QUEUES - 1;
+	rlnode* sel = NULL;
+
+	/*Find the first non empty scheduler's list: */
+	while(is_rlist_empty(&SCHED[i]) && i>0)
+		i--;
+
+	sel = rlist_pop_front(&SCHED[i]);
 
 	TCB* next_thread = sel->tcb; /* When the list is empty, this is NULL */
 
@@ -405,6 +418,9 @@ void sleep_releasing(Thread_state state, Mutex* mx, enum SCHED_CAUSE cause,
 
 void yield(enum SCHED_CAUSE cause)
 {
+
+	
+
 	/* Reset the timer, so that we are not interrupted by ALARM */
 	TimerDuration remaining = bios_cancel_timer();
 
@@ -412,6 +428,9 @@ void yield(enum SCHED_CAUSE cause)
 	int preempt = preempt_off;
 
 	TCB* current = CURTHREAD; /* Make a local copy of current process, for speed */
+
+
+	
 
 	Mutex_Lock(&sched_spinlock);
 
@@ -423,6 +442,41 @@ void yield(enum SCHED_CAUSE cause)
 	current->rts = remaining;
 	current->last_cause = current->curr_cause;
 	current->curr_cause = cause;
+
+	/*Increase the yield counter */
+	yield_counter++;
+
+
+	/* Every TIME_TO_BOOST calls of yield, boost up the priority of all threads to avoid starvation*/
+	if(yield_counter == TIME_TO_BOOST){
+		yield_counter = 0;
+		boost_up();
+	}
+
+	/*Adjust the priority of current thread: */
+	switch(cause){
+
+		/*1) If curr cause is SCHED_QUANTUM, decrease the priority,because it is a long running thread. */
+		case SCHED_QUANTUM :
+			if(current->priority > 0)
+				current->priority--;
+			break;
+
+		/*2)If curr cause is SCHED_IO, increase the priority,because it is a short running thread(I/O thread) */ 
+		case SCHED_IO :
+			if(current->priority < MAX_QUEUES - 1)
+				current->priority++;
+			break;
+
+		/*3) If curr cause is SCHED_MUTEX,decrease the priority,because the thread waits a mutex to be unlocked */
+		case SCHED_MUTEX :
+			if(current->last_cause == cause && current->priority > 0)
+				current->priority--;
+			break;
+		default :
+
+
+	}
 
 	/* Wake up threads whose sleep timeout has expired */
 	sched_wakeup_expired_timeouts();
@@ -446,6 +500,25 @@ void yield(enum SCHED_CAUSE cause)
 	   may have passed. Start a new timeslice...
 	  */
 	gain(preempt);
+}
+
+
+/*This function must be called every TIME_TO_BOOST calls of yield().
+  We increase the priority of all threads and add them to the next higher priority list of scheduler. */
+void boost_up()
+{
+	rlnode* ptr ;
+	/*Threads with priority MAX_QUEUES-1 do not change list. */
+	for(int i=MAX_QUEUES-2; i >= 0 ; i--){
+
+		/*Move the threads of i list to the i+1 list */
+		while(!is_rlist_empty(&SCHED[i])){
+			ptr = rlist_pop_front(&SCHED[i]);
+			rlist_push_back(&SCHED[i+1], ptr);
+			ptr->tcb->priority++;
+		}
+
+	}
 }
 
 /*
@@ -521,7 +594,9 @@ static void idle_thread()
  */
 void initialize_scheduler()
 {
-	rlnode_init(&SCHED, NULL);
+	for(int i=0 ; i<MAX_QUEUES; i++)
+		rlnode_init(&SCHED[i], NULL);
+
 	rlnode_init(&TIMEOUT_LIST, NULL);
 }
 
