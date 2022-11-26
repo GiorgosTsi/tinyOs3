@@ -118,9 +118,6 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
    // return -1;
   //}
 
-  // rlnode of ptcb is already initialized so we just add it to the list of waiting threads of the other ptcb 
-//  rlist_push_back(&(invoked_ptcb->exit_cv), &(invoker_ptcb->ptcb_list_node));
-
   // update the refcount as a thread waits to join this one
   invoked_ptcb->refcount++;
 
@@ -130,13 +127,9 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
     kernel_wait(&invoked_ptcb->exit_cv, SCHED_USER); 
   }
 
-
   // the current thread was awoken (this might take some time)
   //decrease the refcount we have one less waiting thread
   invoked_ptcb->refcount--;
-
-  // remove the invoker thread from the waiting list of the invoked thread
- // rlist_remove(&(invoked_ptcb->ptcb_list_node));
 
   // if the other thread became detached join has failed so return -1
   if(invoked_ptcb->detached == 1){
@@ -209,18 +202,9 @@ void sys_ThreadExit(int exitval)
   //wake up all the threads who join this one:
   if(curr_ptcb->refcount > 0)//if there are threads who joined this one wake them up
     kernel_broadcast(&(curr_ptcb->exit_cv));
-  
-  /*if(curr_ptcb->refcount == 0){
-    rlist_remove(&curr_ptcb->ptcb_list_node);
-    free(curr_ptcb);
-  }*/
 
   /*If thread_count is 0 here, thread to exit is the main thread!Exit the process. */
   if(curproc->thread_count == 0){
-
-
-    /* First, store the exit status */
-  //  curproc->exitval = exitval;
 
     /* Reparent any children of the exiting process to the 
        initial task */
@@ -266,12 +250,6 @@ void sys_ThreadExit(int exitval)
        curproc->FIDT[i] = NULL;
       }
     }
-
-    // if pcb is about to be deleted then we must delete all of its ptcbs
-//    while(!is_rlist_empty(&(CURPROC->ptcb_list))){
-  //      rlnode* p = rlist_pop_front(&(CURPROC->ptcb_list));
-    //    free(p->ptcb);
-    //}
 
     /* Disconnect my main_thread */
     curproc->main_thread = NULL;
