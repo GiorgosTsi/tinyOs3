@@ -91,8 +91,7 @@ enum SCHED_CAUSE {
 	SCHED_USER /**< @brief User-space code called yield */
 };
 
-#define MAX_QUEUES 16 /*The number of scheduler's queues */
-#define TIME_TO_BOOST 700 /* Every TIME_TO_BOOST calls of yield boost up the priority of all threads to avoid starvation*/
+
 /**
   @brief The thread control block
 
@@ -168,6 +167,9 @@ typedef struct process_thread_control_block {
  *
  ************************/
 
+#define MAX_QUEUES 16 /*The number of scheduler's queues */
+#define TIME_TO_BOOST 700 /* Every TIME_TO_BOOST calls of yield boost up the priority of all threads to avoid starvation*/
+
 /** @brief Core control block.
 
   Per-core info in memory (basically scheduler-related). 
@@ -197,7 +199,9 @@ extern CCB cctx[MAX_CORES];
   @returns a pointer to the TCB of the caller.
 */
 TCB* cur_thread();
-
+/*
+  @brief Boost up all threads to avoid starvation
+*/
 void boost_up();
 
 /** 
