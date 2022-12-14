@@ -195,6 +195,7 @@ Pid_t sys_Exec(Task call, int argl, void* args)
     new_ptcb->refcount = 0;
     new_ptcb->exited = 0; // not exited.
     new_ptcb->detached = 0; // not detached.
+    new_ptcb->exit_cv = COND_INIT; // initialize the CV
 
     //initialize rlnode and push front in the list of ptcbs:
     rlnode_init(&(new_ptcb->ptcb_list_node),new_ptcb);

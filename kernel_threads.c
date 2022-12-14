@@ -54,6 +54,7 @@ Tid_t sys_CreateThread(Task task, int argl, void* args)
   new_ptcb->refcount = 0;
   new_ptcb->exited = 0; // not exited.
   new_ptcb->detached = 0; // not detached.
+  new_ptcb->exit_cv = COND_INIT; // initialize the CV
 
   // Copy the arguments to the ptcb's arguments
   new_ptcb->argl = argl;
@@ -232,6 +233,11 @@ void sys_ThreadExit(int exitval)
     assert(is_rlist_empty(& curproc->children_list));
     assert(is_rlist_empty(& curproc->exited_list));
 
+    // Removing the ptcbs from the ptcb list since there are no more threads in the process
+    while(!is_rlist_empty(&curproc->ptcb_list)){
+      rlnode** ptr = (rlnode**) rlist_pop_front(&curproc->ptcb_list);
+      free(*ptr);
+    }
 
      /* 
       Do all the other cleanup we want here, close files etc. 
@@ -256,6 +262,8 @@ void sys_ThreadExit(int exitval)
 
     /* Now, mark the process as exited. */
     curproc->pstate = ZOMBIE;
+
+
     
   }
 
