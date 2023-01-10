@@ -68,11 +68,6 @@ int sys_Pipe(pipe_t* pipe)
 }
 
 
-/*
-int sys_Pipe(pipe_t* pipe){
-	return -1;
-}*/
-
 int pipe_write(void* pipecb_t,const char *buf , unsigned int size)
 {
 	pipe_cb* picb = (pipe_cb*) pipecb_t ; // cast to pipe control block
