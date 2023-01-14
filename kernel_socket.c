@@ -97,6 +97,10 @@ Fid_t sys_Accept(Fid_t lsock)
 	// cast to socket control block
 	socket_cb* listener_scb = (socket_cb*)socket_listener_fcb->streamobj;
 
+	// check if listener is null
+	if(!listener_scb)
+		return NOFILE;
+
 	if(listener_scb->type != SOCKET_LISTENER || PORT_MAP[listener_scb->port] != listener_scb)
 		return NOFILE;
 
@@ -366,7 +370,8 @@ int socket_close(void* _socketcb)
 
 	}
 	else if(socket_scb->type == SOCKET_LISTENER){
-		
+		PORT_MAP[socket_scb->port] = NULL;
+		kernel_signal(&(socket_scb->listener_s.req_available));
 	}
 
 
