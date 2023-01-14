@@ -9,7 +9,7 @@
 
 /*File ops struct for the reader FCB */
 static file_ops reader_file_ops = {
-	.Open  = open,
+	.Open  = open_pipe,
 	.Read  = pipe_read,
 	.Write = disable_write,/*Reader end cannot write in the buffer */
 	.Close = pipe_reader_close
@@ -17,7 +17,7 @@ static file_ops reader_file_ops = {
 
 /*FIle ops struct for the Writer FCB */
 static file_ops writer_file_ops = {
-	.Open  = open,
+	.Open  = open_pipe,
 	.Read  = disable_read,/*Writer end cannot read from the buffer */
 	.Write = pipe_write,
 	.Close = pipe_writer_close
@@ -195,7 +195,7 @@ int disable_read(void* pipecb_t, char* buf , unsigned int n)
 }
 
 /*We don't use open to create the pipe.Instead we use sys_Pipe! */
-void* open(uint minor)
+void* open_pipe(uint minor)
 {
 	return NULL;
 
