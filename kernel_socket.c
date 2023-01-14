@@ -195,14 +195,121 @@ Fid_t sys_Accept(Fid_t lsock)
 
 
 int sys_Connect(Fid_t sock, port_t port, timeout_t timeout)
-{
-	return -1;
+{	
+
+	//if file id is not legal return -1
+	if(sock < 0 || sock > MAX_FILEID-1)
+		return -1;
+
+	FCB* client_fcb = get_fcb(sock);
+
+	//check if the port is legal
+	if(port <= NOPORT || port > MAX_PORT){
+		return -1;
+	}
+
+	//check if there is a listener on that port
+	if(!PORT_MAP[port]){
+		return -1;
+	}
+
+	socket_cb* client_scb = (socket_cb*) client_fcb->streamobj;
+
+	//check if the socket is an unbound socket
+	if(client_scb->type != SOCKET_UNBOUND){
+		return -1;
+	}
+
+	//pointer to the listener
+	socket_cb* listener_scb = PORT_MAP[port];
+
+	//increase refcount
+	listener_scb->refcount++;
+
+	//Build Request
+	connection_request* new_request = xmalloc(sizeof(connection_request));
+
+	//initiallize variables
+	new_request->admitted = 0;
+	new_request->peer = client_scb;
+	new_request->connected_cv = COND_INIT;
+	rlnode_init(&(new_request->queue_node),new_request);
+
+	//add the new request to the listeners queue
+	rlist_push_back(&(listener_scb->listener_s.queue),&(new_request->queue_node));
+
+	//signal the listener as a new request is available
+	kernel_signal(&(listener_scb->listener_s.req_available));
+
+	//while request is not admitted, the client will block for a specified ammount of time
+	while(new_request->admitted == 0){
+
+		//store the return value of kernel_timedwait
+		int return_value = kernel_timedwait(&(new_request->connected_cv), SCHED_PIPE, timeout);
+
+		//if return_value is 0 we timed out so break from the loop
+		if(!return_value){
+			break;
+		}
+
+	}
+
+	//decrease the listener's refcount
+	listener_scb->refcount--;
+	//remove the request from the listener's queue
+	rlist_remove(&(new_request->queue_node));
+
+	//if the request was admitted, then the connect was successfull
+	if(new_request->admitted){
+		return 0;
+	}
+
+
+	return -1;	// if we reach here the request was not admitted!
+	
 }
 
 
 int sys_ShutDown(Fid_t sock, shutdown_mode how)
-{
-	return -1;
+{	
+
+	//if file id is not legal return -1
+	if(sock < 0 || sock > MAX_FILEID-1)
+		return -1;
+
+	FCB* socket_fcb = get_fcb(sock);
+
+	// if the fcb does not exist
+	if(!socket_fcb)
+		return -1;
+
+	// cast to socket control block
+	socket_cb* socket_scb = (socket_cb*)socket_fcb->streamobj;
+
+	//check if the cause is to shutdown the reader
+	if(how == SHUTDOWN_READ)
+		return pipe_reader_close(socket_scb->peer_s.read_pipe);
+	
+
+	//check if the cause is to shutdown the writer
+	if(how == SHUTDOWN_WRITE)
+		return pipe_writer_close(socket_scb->peer_s.write_pipe);
+	
+
+	//check if the cause is to shutdown both reader and writer
+	if(how == SHUTDOWN_BOTH){
+
+		//store the return values
+		int close_writer_return = pipe_writer_close(socket_scb->peer_s.write_pipe);
+		int close_reader_return = pipe_reader_close(socket_scb->peer_s.read_pipe);
+
+		//check if both pipes closed successfully
+		if(close_writer_return == 0 && close_reader_return == 0)
+			return 0;	
+		
+	}
+
+	return -1;	// if we reach here something went wrong !
 }
 
 int socket_write(void* socketcb_t,const char *buf , unsigned int size)
@@ -239,8 +346,33 @@ int socket_read(void* socketcb_t, char* buf , unsigned int size)
 }
 
 int socket_close(void* _socketcb)
-{
-	return -1;
+{	
+	socket_cb* socket_scb = (socket_cb*) _socketcb;
+
+	if(!socket_scb){
+		return -1;
+	}
+
+	if(socket_scb->type == SOCKET_PEER){
+
+		pipe_writer_close(socket_scb->peer_s.write_pipe);
+		pipe_reader_close(socket_scb->peer_s.read_pipe);
+
+		if(socket_scb->peer_s.peer){
+			socket_cb* peer= socket_scb->peer_s.peer;
+			peer->peer_s.peer = NULL;
+			peer->type = SOCKET_UNBOUND;
+		}
+
+	}
+	else if(socket_scb->type == SOCKET_LISTENER){
+		
+	}
+
+
+	free(socket_scb);
+
+	return 0;
 }
 
 /*We don't use open to create the socket.Instead we use sys_Socket! */
