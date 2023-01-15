@@ -3,6 +3,8 @@
 #include "kernel_cc.h"
 #include "kernel_proc.h"
 #include "kernel_streams.h"
+#include "tinyos.h"
+#include "kernel_dev.h"
 
 
 /* 
@@ -12,6 +14,7 @@
  - WaitPid
  - GetPid
  - GetPPid
+
 
  */
 
@@ -334,10 +337,105 @@ void sys_Exit(int exitval)
     
 }
 
+static file_ops procinfo_ops ={
+  .Open = open_info_null,
+  .Read = procinfo_read,
+  .Write= procinfo_write_null,
+  .Close= procinfo_close
+};
 
 
 Fid_t sys_OpenInfo()
 {
-	return NOFILE;
+	Fid_t fid; //fid
+  FCB* fcb; //fcb
+
+  if(! FCB_reserve( 1, &fid, &fcb))
+    return NOFILE; /*No fcbs left */
+
+  /*Create a new stream object(openinfoCB) */
+
+  procinfoCB* picb = xmalloc(sizeof(procinfoCB));
+  picb->PCB_cursor = 1;//initialize to point to init process.
+  
+  /*initialize fcb's attributes */
+  fcb->streamobj = picb;
+  fcb->streamfunc = &procinfo_ops;
+
+  return fid;
+}
+
+
+
+int procinfo_read(void* procinfoCB_t,char *buf , unsigned int size){
+
+  procinfoCB* picb = (procinfoCB*)procinfoCB_t;//cast to procinfo control block.
+
+  if(picb == NULL) return -1;
+
+  while(picb->PCB_cursor < MAX_PROC){
+
+    /*If the process in this index exists,read it's info */
+    if(PT[picb->PCB_cursor].pstate != FREE){
+
+      /*Copy all process info to the procinfoCB */
+      PCB* pcb = &PT[picb->PCB_cursor];
+
+      picb->info.pid = get_pid(pcb);
+
+      picb->info.ppid = get_pid(pcb->parent);
+
+      picb->info.alive = (pcb->pstate) == ALIVE ;// Non-zero if process is alive, zero if process is zombie
+
+      picb->info.thread_count = pcb->thread_count;
+
+      picb->info.main_task = pcb->main_task;
+
+      picb->info.argl = pcb->argl;
+
+      /*if pcb's args size is bigger than PROCINFO_MAX_ARGS_SIZE then we copy PROCINFO_MAX_ARGS_SIZE bytes.
+        else we copy argl bytes
+      */
+      int number_of_chars_to_copy = pcb->argl > PROCINFO_MAX_ARGS_SIZE ? PROCINFO_MAX_ARGS_SIZE : pcb->argl ;
+
+      if(pcb->args != NULL)
+        memcpy(picb->info.args , pcb->args , number_of_chars_to_copy);
+
+      //copy the picb struct to the buffer as char array:
+
+      memcpy(buf , (char*) &(picb->info) , size);
+
+      picb->PCB_cursor++;
+
+      return size;
+    }
+    //if the process in this index does not exist, continue to the next index.
+    else picb->PCB_cursor++;
+
+  }
+
+  /*we are out of the loop , so EOF*/
+    return 0;
+
+}
+
+int procinfo_close(void* procinfoCB_t){
+
+  procinfoCB* picb = (procinfoCB*)procinfoCB_t;//cast to procinfo control block.
+
+  if(picb == NULL) return -1;
+
+  //free the stream object
+  free(picb);
+
+  return 0 ;
+}
+
+void* open_info_null(uint minor){
+  return NULL;
+}
+
+int procinfo_write_null(void* procinfoCB_t, const char* buf , unsigned int size){
+  return -1;
 }
 

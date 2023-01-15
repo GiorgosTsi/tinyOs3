@@ -100,4 +100,12 @@ Pid_t get_pid(PCB* pcb);
 
 /** @} */
 
+
+/** process info methods */
+
+void* open_info_null(uint minor);
+int procinfo_read(void* procinfoCB_t,char *buf , unsigned int size);
+int procinfo_write_null(void* procinfoCB_t,const char* buf , unsigned int size);
+int procinfo_close(void* procinfoCB_t);
+
 #endif

@@ -101,7 +101,9 @@ Fid_t sys_Accept(Fid_t lsock)
 	if(!listener_scb)
 		return NOFILE;
 
-	if(listener_scb->type != SOCKET_LISTENER || PORT_MAP[listener_scb->port] != listener_scb)
+	int port = listener_scb->port ;
+
+	if(listener_scb->type != SOCKET_LISTENER || PORT_MAP[port] != listener_scb)
 		return NOFILE;
 
 	int i = 0;
@@ -119,13 +121,14 @@ Fid_t sys_Accept(Fid_t lsock)
 	listener_scb->refcount += 1;
 
 	// if the request queue is empty make the listener sleep on the req_available condition variable until a request is sent
-	while(is_rlist_empty(&(listener_scb->listener_s.queue)))
+	//if the listener socket closes when listener is sleeping, wake up
+	while(is_rlist_empty(&(listener_scb->listener_s.queue)) && PORT_MAP[port] != NULL)
 	{
 		kernel_wait(&(listener_scb->listener_s.req_available), SCHED_IO);
 	}
 
 	// check if the port is still valid as the socket may have been closed while we were sleeping
-	if(PORT_MAP[listener_scb->port] != listener_scb)
+	if(PORT_MAP[port] == NULL)
 		return NOFILE;
 
 	connection_request* request_admitted = rlist_pop_front(&(listener_scb->listener_s.queue))->connection_request;
@@ -187,7 +190,7 @@ Fid_t sys_Accept(Fid_t lsock)
     client_peer_scb->peer_s.read_pipe = pipe_cb1;
     client_peer_scb->peer_s.write_pipe = pipe_cb2;
 
-    // signal the connect side
+    // signal the client, because the connection has been established.
     kernel_signal(&(request_admitted->connected_cv));
 
     // decrease the listener's refcount
@@ -228,7 +231,7 @@ int sys_Connect(Fid_t sock, port_t port, timeout_t timeout)
 	socket_cb* listener_scb = PORT_MAP[port];
 
 	//increase refcount
-	listener_scb->refcount++;
+	client_scb->refcount++;
 
 	//Build Request
 	connection_request* new_request = xmalloc(sizeof(connection_request));
@@ -258,8 +261,8 @@ int sys_Connect(Fid_t sock, port_t port, timeout_t timeout)
 
 	}
 
-	//decrease the listener's refcount
-	listener_scb->refcount--;
+	//decrease the refcount
+	client_scb->refcount--;
 	//remove the request from the listener's queue
 	rlist_remove(&(new_request->queue_node));
 
@@ -358,26 +361,29 @@ int socket_close(void* _socketcb)
 	}
 
 	if(socket_scb->type == SOCKET_PEER){
-
-		pipe_writer_close(socket_scb->peer_s.write_pipe);
-		pipe_reader_close(socket_scb->peer_s.read_pipe);
-
+		
 		if(socket_scb->peer_s.peer){
+			pipe_writer_close(socket_scb->peer_s.write_pipe);
+			pipe_reader_close(socket_scb->peer_s.read_pipe);
 			socket_cb* peer= socket_scb->peer_s.peer;
 			peer->peer_s.peer = NULL;
-			peer->type = SOCKET_UNBOUND;
 		}
-
+		if(socket_scb->refcount == 0) free(socket_scb);
+		return 0;
 	}
+
 	else if(socket_scb->type == SOCKET_LISTENER){
 		PORT_MAP[socket_scb->port] = NULL;
+		//if listener is sleeping in his condVar while waiting for a request, wake him up.
 		kernel_signal(&(socket_scb->listener_s.req_available));
+		if(socket_scb->refcount == 0) free(socket_scb);
+		return 0;
 	}
 
-
-	free(socket_scb);
-
-	return 0;
+	else{//SOCKET_UNBOUND type
+		free(socket_scb);
+		return 0;
+	}
 }
 
 /*We don't use open to create the socket.Instead we use sys_Socket! */

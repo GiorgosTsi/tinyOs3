@@ -739,6 +739,14 @@ typedef struct procinfo
 } procinfo;
 
 
+typedef struct procinfoCB{
+
+  procinfo info; // a procinfo struct
+  int PCB_cursor;    // a pointer to the PT. 
+
+} procinfoCB;
+
+
 /**
 	@brief Open a kernel information stream.
 
